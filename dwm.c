@@ -58,7 +58,7 @@
 enum { CurNormal, CurResize, CurMove, CurLast };        /* cursor */
 enum { ColBorder, ColFG, ColBG, ColLast };              /* color */
 enum { NetSupported, NetWMName, NetWMState,
-       NetWMFullscreen, NetActiveWindow, NetLast };     /* EWMH atoms */
+       NetWMFullscreen, NetActiveWindow, NetWMWindowOpacity, NetLast };     /* EWMH atoms */
 enum { WMProtocols, WMDelete, WMState, WMTakeFocus, WMLast }; /* default atoms */
 enum { ClkTagBar, ClkLtSymbol, ClkStatusText, ClkWinTitle,
        ClkClientWin, ClkRootWin, ClkLast };             /* clicks */
@@ -93,11 +93,13 @@ struct Client {
 	Client *snext;
 	Monitor *mon;
 	Window win;
+	double opacity;
 };
 
 typedef struct {
 	int x, y, w, h;
 	unsigned long norm[ColLast];
+	unsigned long full[ColLast];
 	unsigned long sel[ColLast];
 	Drawable drawable;
 	GC gc;
@@ -149,6 +151,7 @@ typedef struct {
 	unsigned int tags;
 	Bool isfloating;
 	int monitor;
+	double opacity;
 } Rule;
 
 /* function declarations */
@@ -179,6 +182,7 @@ static void drawsquare(Bool filled, Bool empty, Bool invert, unsigned long col[C
 static void drawtext(const char *text, unsigned long col[ColLast], Bool invert);
 static void enternotify(XEvent *e);
 static void expose(XEvent *e);
+static void window_opacity_set(Client *c, double opacity);
 static void focus(Client *c);
 static void focusin(XEvent *e);
 static void focusmon(const Arg *arg);
@@ -190,6 +194,7 @@ static Bool gettextprop(Window w, Atom atom, char *text, unsigned int size);
 static void grabbuttons(Client *c, Bool focused);
 static void grabkeys(void);
 static void initfont(const char *fontstr);
+static Bool isprotodel(Client *c);
 static void keypress(XEvent *e);
 static void killclient(const Arg *arg);
 static void manage(Window w, XWindowAttributes *wa);
@@ -197,6 +202,7 @@ static void mappingnotify(XEvent *e);
 static void maprequest(XEvent *e);
 static void monocle(Monitor *m);
 static void movemouse(const Arg *arg);
+static void nametag(const Arg *arg);
 static Client *nexttiled(Client *c);
 static void pop(Client *);
 static void propertynotify(XEvent *e);
@@ -213,6 +219,7 @@ static void sendmon(Client *c, Monitor *m);
 static void setclientstate(Client *c, long state);
 static void setfocus(Client *c);
 static void setlayout(const Arg *arg);
+static void setnextlayout(const Arg *arg);
 static void setmfact(const Arg *arg);
 static void setup(void);
 static void showhide(Client *c);
@@ -269,6 +276,7 @@ static void (*handler[LASTEvent]) (XEvent *) = {
 	[UnmapNotify] = unmapnotify
 };
 static Atom wmatom[WMLast], netatom[NetLast];
+static Bool otherwm;
 static Bool running = True;
 static Cursor cursor[CurLast];
 static Display *dpy;
@@ -303,6 +311,7 @@ applyrules(Client *c) {
 			&& (!r->instance || strstr(instance, r->instance)))
 			{
 				c->isfloating = r->isfloating;
+				c->opacity = r->opacity;
 				c->tags |= r->tags;
 				for(m = mons; m && m->num != r->monitor; m = m->next);
 				if(m)
@@ -315,6 +324,13 @@ applyrules(Client *c) {
 			XFree(ch.res_name);
 	}
 	c->tags = c->tags & TAGMASK ? c->tags & TAGMASK : c->mon->tagset[c->mon->seltags];
+	Arg a = {.ui = c->tags};
+	if(selmon->num != c->mon->num)
+	{
+		Arg b = {.i = c->mon->num};
+		focusmon(&b);
+	}
+	view(&a);
 }
 
 Bool
@@ -459,10 +475,13 @@ buttonpress(XEvent *e) {
 
 void
 checkotherwm(void) {
+	otherwm = False;
 	xerrorxlib = XSetErrorHandler(xerrorstart);
 	/* this causes an error if some other window manager is running */
 	XSelectInput(dpy, DefaultRootWindow(dpy), SubstructureRedirectMask);
 	XSync(dpy, False);
+	if(otherwm)
+		die("dwm: another window manager is already running\n");
 	XSetErrorHandler(xerror);
 	XSync(dpy, False);
 }
@@ -736,14 +755,22 @@ drawbar(Monitor *m) {
 	dc.x = 0;
 	for(i = 0; i < LENGTH(tags); i++) {
 		dc.w = TEXTW(tags[i]);
-		col = m->tagset[m->seltags] & 1 << i ? dc.sel : dc.norm;
+		col = m->tagset[m->seltags] & 1 << i ? dc.sel : (occ & 1 << i ? dc.full : dc.norm);
+    if (m->tagset[m->seltags] & 1 << i)
+    {
+      tags[i][0] = '[';
+      tags[i][strlen(tags[i]) - 1] = ']';
+    } else 
+    {
+      tags[i][0] = tags[i][strlen(tags[i]) - 1] = ' ';
+    }
 		drawtext(tags[i], col, urg & 1 << i);
-		drawsquare(m == selmon && selmon->sel && selmon->sel->tags & 1 << i,
-		           occ & 1 << i, urg & 1 << i, col);
+		//drawsquare(m == selmon && selmon->sel && selmon->sel->tags & 1 << i,
+		//           occ & 1 << i, urg & 1 << i, col);
 		dc.x += dc.w;
 	}
 	dc.w = blw = TEXTW(m->ltsymbol);
-	drawtext(m->ltsymbol, dc.norm, False);
+	drawtext(m->ltsymbol, dc.full, False);
 	dc.x += dc.w;
 	x = dc.x;
 	if(m == selmon) { /* status is only drawn on selected monitor */
@@ -762,7 +789,7 @@ drawbar(Monitor *m) {
 		if(m->sel) {
 			col = m == selmon ? dc.sel : dc.norm;
 			drawtext(m->sel->name, col, False);
-			drawsquare(m->sel->isfixed, m->sel->isfloating, False, col);
+			//drawsquare(m->sel->isfixed, m->sel->isfloating, False, col);
 		}
 		else
 			drawtext(NULL, dc.norm, False);
@@ -847,12 +874,26 @@ expose(XEvent *e) {
 }
 
 void
+window_opacity_set(Client *c, double opacity) {
+	if(opacity >= 0 && opacity <= 1) {
+		unsigned long real_opacity[] = { opacity * 0xffffffff };
+		XChangeProperty(dpy, c->win, netatom[NetWMWindowOpacity], XA_CARDINAL, 32, PropModeReplace, (unsigned char *)real_opacity, 1);
+	}
+	else
+		XDeleteProperty(dpy, c->win, netatom[NetWMWindowOpacity]);
+}
+
+void
 focus(Client *c) {
 	if(!c || !ISVISIBLE(c))
 		for(c = selmon->stack; c && !ISVISIBLE(c); c = c->snext);
 	/* was if(selmon->sel) */
 	if(selmon->sel && selmon->sel != c)
 		unfocus(selmon->sel, False);
+
+	if(selmon->sel && c!=selmon->sel && c && (!root || (selmon->sel->win!=root && c->win!=root)) ) window_opacity_set(selmon->sel, selmon->sel->opacity);
+	if(c && c!=selmon->sel && (!root || (c->win!=root)) ) window_opacity_set(c, defaultOpacity);
+
 	if(c) {
 		if(c->mon != selmon)
 			selmon = c->mon;
@@ -868,6 +909,7 @@ focus(Client *c) {
 		XSetInputFocus(dpy, root, RevertToPointerRoot, CurrentTime);
 	selmon->sel = c;
 	drawbars();
+	if(c) window_opacity_set(c, defaultOpacity);
 }
 
 void
@@ -880,7 +922,9 @@ focusin(XEvent *e) { /* there are some broken focus acquiring clients */
 
 void
 focusmon(const Arg *arg) {
-	Monitor *m;
+	Monitor *m = NULL;
+
+	if(selmon->sel && (!root || (selmon->sel->win!=root)) ) window_opacity_set(selmon->sel, selmon->sel->opacity);
 
 	if(!mons->next)
 		return;
@@ -1053,6 +1097,21 @@ initfont(const char *fontstr) {
 	dc.font.height = dc.font.ascent + dc.font.descent;
 }
 
+Bool
+isprotodel(Client *c) {
+	int i, n;
+	Atom *protocols;
+	Bool ret = False;
+
+	if(XGetWMProtocols(dpy, c->win, &protocols, &n)) {
+		for(i = 0; !ret && i < n; i++)
+			if(protocols[i] == wmatom[WMDelete])
+				ret = True;
+		XFree(protocols);
+	}
+	return ret;
+}
+
 #ifdef XINERAMA
 static Bool
 isuniquegeom(XineramaScreenInfo *unique, size_t n, XineramaScreenInfo *info) {
@@ -1105,6 +1164,7 @@ manage(Window w, XWindowAttributes *wa) {
 	c->win = w;
 	updatetitle(c);
 	if(XGetTransientForHint(dpy, w, &trans) && (t = wintoclient(trans))) {
+    c->opacity=-1;
 		c->mon = t->mon;
 		c->tags = t->tags;
 	}
@@ -1244,6 +1304,25 @@ movemouse(const Arg *arg) {
 		selmon = m;
 		focus(NULL);
 	}
+}
+
+void
+nametag(const Arg *arg) {
+	char *cp, name[MAX_TAGLEN];
+	FILE *fp;
+	int i;
+
+	if(!(fp = (FILE*)popen("echo -n | dmenu", "r")))
+		fprintf(stderr, "dwm: Could not popen 'echo -n | dmenu'\n");
+	cp = fgets(name, MAX_TAGLEN, fp);
+	pclose(fp);
+	if(cp == NULL)
+		return;
+
+	for(i = 0; i < LENGTH(tags); i++)
+		if(selmon->tagset[selmon->seltags] & (1 << i))
+			memcpy(tags[i], name, MAX_TAGLEN);
+	drawbars();
 }
 
 Client *
@@ -1505,6 +1584,18 @@ setlayout(const Arg *arg) {
 	else
 		drawbar(selmon);
 }
+void
+setnextlayout(const Arg *arg) {
+	const void *selectedLayout = &layouts[1];
+	if(selectedLayout != selmon->lt[selmon->sellt])
+		selmon->sellt ^= 1;
+	selmon->lt[selmon->sellt] = (Layout *)selectedLayout;
+	strncpy(selmon->ltsymbol, selmon->lt[selmon->sellt]->symbol, sizeof selmon->ltsymbol);
+	if(selmon->sel)
+		arrange(selmon);
+	else
+		drawbar(selmon);
+}
 
 /* arg > 1.0 will set mfact absolutly */
 void
@@ -1543,6 +1634,7 @@ setup(void) {
 	netatom[NetActiveWindow] = XInternAtom(dpy, "_NET_ACTIVE_WINDOW", False);
 	netatom[NetSupported] = XInternAtom(dpy, "_NET_SUPPORTED", False);
 	netatom[NetWMName] = XInternAtom(dpy, "_NET_WM_NAME", False);
+	netatom[NetWMWindowOpacity] = XInternAtom(dpy, "_NET_WM_WINDOW_OPACITY", False);
 	netatom[NetWMState] = XInternAtom(dpy, "_NET_WM_STATE", False);
 	netatom[NetWMFullscreen] = XInternAtom(dpy, "_NET_WM_STATE_FULLSCREEN", False);
 	/* init cursors */
@@ -1553,6 +1645,8 @@ setup(void) {
 	dc.norm[ColBorder] = getcolor(normbordercolor);
 	dc.norm[ColBG] = getcolor(normbgcolor);
 	dc.norm[ColFG] = getcolor(normfgcolor);
+	dc.full[ColBG] = getcolor(fullbgcolor);
+	dc.full[ColFG] = getcolor(fullfgcolor);
 	dc.sel[ColBorder] = getcolor(selbordercolor);
 	dc.sel[ColBG] = getcolor(selbgcolor);
 	dc.sel[ColFG] = getcolor(selfgcolor);
@@ -1618,6 +1712,7 @@ tag(const Arg *arg) {
 	if(selmon->sel && arg->ui & TAGMASK) {
 		selmon->sel->tags = arg->ui & TAGMASK;
 		arrange(selmon);
+		view(arg);
 	}
 }
 
@@ -1626,6 +1721,7 @@ tagmon(const Arg *arg) {
 	if(!selmon->sel || !mons->next)
 		return;
 	sendmon(selmon->sel, dirtomon(arg->i));
+	focusmon(arg);
 }
 
 int
@@ -1775,6 +1871,11 @@ void
 updatebarpos(Monitor *m) {
 	m->wy = m->my;
 	m->wh = m->mh;
+  if(dzenbar >= 0 && m->num == dzenbar) {
+    m->wh -= marginbottom;
+    if(!m->topbar)
+      m->wy += marginbottom;
+  }
 	if(m->showbar) {
 		m->wh -= bh;
 		m->by = m->topbar ? m->wy : m->wy + m->wh;
@@ -2041,6 +2142,7 @@ zoom(const Arg *arg) {
 	Client *c = selmon->sel;
 
 	if(!selmon->lt[selmon->sellt]->arrange
+	|| selmon->lt[selmon->sellt]->arrange == monocle
 	|| (selmon->sel && selmon->sel->isfloating))
 		return;
 	if(c == nexttiled(selmon->clients))
