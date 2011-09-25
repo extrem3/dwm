@@ -1,6 +1,7 @@
 /* See LICENSE file for copyright and license details. */
 
 #include "gaplessgrid.c"
+#include "sideemup.c"
 
 /* appearance */
 static const char font[]            = "-*-terminus-medium-r-*-*-12-*-*-*-*-*-*-*";
@@ -30,7 +31,7 @@ static const double defaultOpacity  = 1.0;        /* border pixel of windows */
 static const Bool showbar           = False;     /* False means no bar */
 static const Bool topbar            = True;     /* False means bottom bar */
 static const int dzenbar            = 1;     /* Monitor on which dzen bar exists - -1 means no bar */
-static const int marginbottom       = 16;
+static const int marginbottom       = 12;
 
 /* tagging */
 #define MAX_TAGLEN 16
@@ -39,8 +40,8 @@ static char tags[][MAX_TAGLEN] = { " term ", " www ", " dev ", " mov "};
 static const Rule rules[] = {
 	/* class      instance    title       tags mask     isfloating   monitor */
 	{ "Gimp",     NULL,       NULL,       0,            True,        -1,          -1 },
-	{ "XTerm",    NULL,       NULL,       1 << 0,       False,       1,           0.6 },
-	{ "Firefox",  NULL,       NULL,       1 << 1,       False,       0,           -1 },
+	{ "XTerm",    NULL,       NULL,       1 << 0,       False,       1,           0.75 },
+	{ "Iceweasel",NULL,       NULL,       1 << 1,       False,       0,           -1 },
 	{ "Gvim",     NULL,       NULL,       1 << 2,       False,       0,           -1 },
 	{ "qtcreator",NULL,       NULL,       1 << 2,       False,       0,           -1 },
 	{ "SMPlayer", NULL,       NULL,       1 << 3,       False,       0,           -1 },
@@ -56,6 +57,7 @@ static const Layout layouts[] = {
 	{ "|#|",      gaplessgrid },    /* gaplessgrid layout */
 	{ "[]=",      tile },    /* first entry is default */
 	{ "><>",      NULL },    /* no layout function means floating behavior */
+	{ "|||",      sideemup },    /* gaplessgrid layout */
 	{ "[M]",      monocle },
 };
 
@@ -73,7 +75,7 @@ static const Layout layouts[] = {
 /* commands */
 static const char *dmenucmd[] = { "dmenu_run", "-fn", font, "-nb", normbgcolor, "-nf", normfgcolor, "-sb", selbgcolor, "-sf", selfgcolor, NULL };
 static const char *termcmd[]  = { "xterm", NULL };
-static const char *firefox[]  = { "firefox", NULL };
+static const char *firefox[]  = { "iceweasel", NULL };
 
 static Key keys[] = {
 	/* modifier                     key        function        argument */
@@ -90,7 +92,8 @@ static Key keys[] = {
 	{ MODKEY|ShiftMask,             XK_c,      killclient,     {0} },
 	{ MODKEY,                       XK_t,      setlayout,      {.v = &layouts[1]} },
 	{ MODKEY,                       XK_f,      setlayout,      {.v = &layouts[2]} },
-	{ MODKEY,                       XK_m,      setlayout,      {.v = &layouts[3]} },
+	{ MODKEY,                       XK_i,      setlayout,      {.v = &layouts[3]} },
+	{ MODKEY,                       XK_m,      setlayout,      {.v = &layouts[4]} },
 	{ MODKEY,                       XK_g,      setlayout,      {.v = &layouts[0]} },
 	{ MODKEY,                       XK_n,      setnextlayout,  {0} },
 	{ MODKEY,                       XK_space,  setlayout,      {0} },
