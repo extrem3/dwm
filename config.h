@@ -2,29 +2,11 @@
 
 #include "gaplessgrid.c"
 #include "sideemup.c"
+#include "theme.c"
 
 /* appearance */
 static const char font[]            = "-*-terminus-medium-r-*-*-12-*-*-*-*-*-*-*";
 
-static const char normbordercolor[] = "#030303";
-static const char normbgcolor[]     = "#000003";
-static const char normfgcolor[]     = "#303030";
-static const char fullbgcolor[]     = "#000003";
-static const char fullfgcolor[]     = "#103050";
-static const char selbordercolor[]  = "#303030";
-static const char selbgcolor[]      = "#030303";
-static const char selfgcolor[]      = "#3070A0";
-
-/*  WHITE THEME
-static const char normbordercolor[] = "#cccccc";
-static const char normbgcolor[]     = "#cccccc";
-static const char normfgcolor[]     = "#000000";
-static const char fullbgcolor[]     = "#000003";
-static const char fullfgcolor[]     = "#103050";
-static const char selbordercolor[]  = "#0066ff";
-static const char selbgcolor[]      = "#0066ff";
-static const char selfgcolor[]      = "#ffffff";
-*/
 static const unsigned int borderpx  = 1;        /* border pixel of windows */
 static const unsigned int snap      = 32;       /* snap pixel */
 static const double defaultOpacity  = 1.0;        /* border pixel of windows */
